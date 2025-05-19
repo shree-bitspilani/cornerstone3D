@@ -1,0 +1,307 @@
+import {
+  RenderingEngine,
+  Enums,
+  setVolumesForViewports,
+  volumeLoader,
+  imageLoader,
+} from '@cornerstonejs/core';
+
+import {
+  initDemo,
+  setTitleAndDescription,
+  addButtonToToolbar,
+  addToggleButtonToToolbar,
+} from '../../../../utils/demo/helpers';
+
+import {
+  cornerstoneNiftiImageLoader,
+  createNiftiImageIdsAndCacheMetadata,
+} from '@cornerstonejs/nifti-volume-loader';
+
+import * as cornerstoneTools from '@cornerstonejs/tools';
+import addDropDownToToolbar from '../../../../utils/demo/helpers/addDropdownToToolbar';
+
+// This is for debugging purposes
+console.warn(
+  'Click on index.ts to open source code for this example --------->'
+);
+
+const {
+  ToolGroupManager,
+  StackScrollTool,
+  ZoomTool,
+  ReferenceLinesTool,
+  PanTool,
+  Enums: csToolsEnums,
+  WindowLevelTool,
+} = cornerstoneTools;
+
+const { ViewportType, OrientationAxis, BlendModes } = Enums;
+const { MouseBindings } = csToolsEnums;
+
+// Define a unique id for the volume
+const volumeName = 'NIFTI_VOLUME';
+const volumeId = volumeName;
+
+// Set the page title and description
+setTitleAndDescription(
+  'NIfTI Volume Slab Scroll',
+  'Here we demonstrate how you can programmatically change the slab thickness of NIfTI volumes for rendering and view them in 3D.'
+);
+
+// Define viewport IDs for different orientations
+const viewportIds = ['NIFTI_AXIAL', 'NIFTI_SAGITTAL', 'NIFTI_CORONAL'];
+let activeViewportId = viewportIds[0];
+let targetSlabThickness = 1;
+let toolGroup;
+
+// Create the layout container
+const content = document.getElementById('content');
+const viewportGrid = document.createElement('div');
+viewportGrid.style.display = 'flex';
+viewportGrid.style.flexDirection = 'row';
+
+// Create three viewport elements with equal size
+const size = '500px';
+const element1 = document.createElement('div');
+const element2 = document.createElement('div');
+const element3 = document.createElement('div');
+
+element1.oncontextmenu = () => false;
+element2.oncontextmenu = () => false;
+element3.oncontextmenu = () => false;
+
+element1.style.width = size;
+element1.style.height = size;
+element2.style.width = size;
+element2.style.height = size;
+element3.style.width = size;
+element3.style.height = size;
+
+// Append viewport elements to the grid container
+viewportGrid.appendChild(element1);
+viewportGrid.appendChild(element2);
+viewportGrid.appendChild(element3);
+
+// Add the viewport grid to the page content
+content.appendChild(viewportGrid);
+
+// Add instructions
+const instructions = document.createElement('p');
+instructions.innerText = 'Choose the level of thickness you want to view the volume in 3D.';
+content.append(instructions);
+
+// URL for the NIfTI file
+const niftiURL = 'https://ohif-assets.s3.us-east-2.amazonaws.com/nifti/CTACardio.nii.gz';
+const renderingEngineId = 'myRenderingEngine';
+let renderingEngine;
+
+/**
+ * Main function to run the demo
+ */
+async function run() {
+  // Init Cornerstone and related libraries
+  await initDemo();
+
+  // Register the NIfTI image loader
+  imageLoader.registerImageLoader('nifti', cornerstoneNiftiImageLoader);
+
+  // Create dropdown for viewport selection
+  addDropDownToToolbar({
+    id: 'viewportIdSelector',
+    options: {
+      defaultValue: activeViewportId,
+      values: viewportIds,
+    },
+    labelText: 'Active Viewport to Change Slab Thickness',
+    onSelectedValueChange: (value) => {
+      activeViewportId = value;
+      toolGroup.setToolDisabled(ReferenceLinesTool.toolName);
+      toolGroup.setToolConfiguration(ReferenceLinesTool.toolName, {
+        sourceViewportId: activeViewportId,
+      });
+      toolGroup.setToolEnabled(ReferenceLinesTool.toolName);
+      renderingEngine.render();
+    },
+  });
+
+  // Create dropdown for slab thickness selection
+  addDropDownToToolbar({
+    id: 'slabThickness',
+    options: {
+      defaultValue: targetSlabThickness,
+      values: [1, 2.5, 3, 4.5, 5, 20],
+    },
+    labelText: 'Slab Thickness',
+    onSelectedValueChange: (value) => {
+      targetSlabThickness = value;
+    },
+  });
+
+  // Add button to apply slab thickness
+  addButtonToToolbar({
+    id: 'slabChange',
+    title: 'Apply',
+    onClick: () => {
+      const viewport = renderingEngine.getViewport(activeViewportId);
+      viewport.setProperties({ slabThickness: targetSlabThickness });
+      viewport.setBlendMode(BlendModes.AVERAGE_INTENSITY_BLEND);
+      viewport.render();
+    },
+  });
+
+  // Add button to reset viewport properties
+  addButtonToToolbar({
+    title: 'Reset',
+    onClick: () => {
+      const viewport = renderingEngine.getViewport(activeViewportId);
+      viewport.resetProperties();
+      viewport.render();
+    },
+  });
+
+  // Add toggle for slab scrolling
+  addToggleButtonToToolbar({
+    id: 'slabScroll',
+    title: 'Toggle Slab Scroll',
+    defaultToggle: false,
+    onClick: (toggle) => {
+      const scrollSlabs = !!toggle;
+      toolGroup.setToolConfiguration(StackScrollTool.toolName, {
+        scrollSlabs,
+      });
+    },
+  });
+
+  // Setup tools and tool group
+  const toolGroupId = 'NIFTI_TOOL_GROUP';
+
+  // Add tools to Cornerstone3D
+  cornerstoneTools.addTool(WindowLevelTool);
+  cornerstoneTools.addTool(ReferenceLinesTool);
+  cornerstoneTools.addTool(PanTool);
+  cornerstoneTools.addTool(ZoomTool);
+  cornerstoneTools.addTool(StackScrollTool);
+
+  // Create a tool group for managing tools
+  toolGroup = ToolGroupManager.createToolGroup(toolGroupId);
+
+  // Add tools to the tool group with the volume ID
+  toolGroup.addTool(WindowLevelTool.toolName, { volumeId });
+  toolGroup.addTool(ReferenceLinesTool.toolName, { volumeId });
+  toolGroup.addTool(PanTool.toolName, { volumeId });
+  toolGroup.addTool(ZoomTool.toolName, { volumeId });
+  toolGroup.addTool(StackScrollTool.toolName);
+
+  // Set tool bindings for mouse interactions
+  toolGroup.setToolActive(WindowLevelTool.toolName, {
+    bindings: [
+      {
+        mouseButton: MouseBindings.Primary, // Left Click
+      },
+    ],
+  });
+
+  toolGroup.setToolActive(PanTool.toolName, {
+    bindings: [
+      {
+        mouseButton: MouseBindings.Auxiliary, // Middle Click
+      },
+    ],
+  });
+
+  toolGroup.setToolActive(ZoomTool.toolName, {
+    bindings: [
+      {
+        mouseButton: MouseBindings.Secondary, // Right Click
+      },
+    ],
+  });
+
+  toolGroup.setToolEnabled(ReferenceLinesTool.toolName);
+  toolGroup.setToolConfiguration(ReferenceLinesTool.toolName, {
+    sourceViewportId: viewportIds[0],
+  });
+
+  // Configure mousewheel for stack scrolling
+  toolGroup.setToolActive(StackScrollTool.toolName, {
+    bindings: [
+      {
+        mouseButton: MouseBindings.Wheel,
+      },
+    ],
+  });
+
+  // Initialize the rendering engine
+  renderingEngine = new RenderingEngine(renderingEngineId);
+
+  // Define viewport configurations
+  const viewportInputArray = [
+    {
+      viewportId: viewportIds[0],
+      type: ViewportType.ORTHOGRAPHIC,
+      element: element1,
+      defaultOptions: {
+        orientation: OrientationAxis.AXIAL,
+        background: [0.2, 0, 0.2],
+      },
+    },
+    {
+      viewportId: viewportIds[1],
+      type: ViewportType.ORTHOGRAPHIC,
+      element: element2,
+      defaultOptions: {
+        orientation: OrientationAxis.SAGITTAL,
+        background: [0.2, 0, 0.2],
+      },
+    },
+    {
+      viewportId: viewportIds[2],
+      type: ViewportType.ORTHOGRAPHIC,
+      element: element3,
+      defaultOptions: {
+        orientation: OrientationAxis.CORONAL,
+        background: [0.2, 0, 0.2],
+      },
+    },
+  ];
+
+  // Set up the viewports
+  renderingEngine.setViewports(viewportInputArray);
+
+  // Set the tool group on the viewports
+  viewportIds.forEach((viewportId) =>
+    toolGroup.addViewport(viewportId, renderingEngineId)
+  );
+
+  try {
+    // Generate image IDs for NIfTI volume
+    const imageIds = await createNiftiImageIdsAndCacheMetadata({
+      url: niftiURL,
+    });
+
+    // Define and load the volume
+    const volume = await volumeLoader.createAndCacheVolume(volumeId, {
+      imageIds,
+    });
+
+    // Load the volume data
+    await volume.load();
+
+    // Assign the volume to all three viewports
+    setVolumesForViewports(
+      renderingEngine,
+      [{ volumeId }],
+      viewportIds
+    );
+
+    // Render all viewports
+    renderingEngine.renderViewports(viewportIds);
+  } catch (error) {
+    console.error('Error loading NIfTI volume:', error);
+  }
+}
+
+// Start the application
+run();
+

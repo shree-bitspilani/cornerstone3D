@@ -1,0 +1,71 @@
+import {
+  RenderingEngine,
+  Enums,
+  volumeLoader,
+  setVolumesForViewports,
+  imageLoader,
+} from '@cornerstonejs/core';
+
+import {
+  cornerstoneNiftiImageLoader,
+  createNiftiImageIdsAndCacheMetadata,
+} from '@cornerstonejs/nifti-volume-loader';
+
+import { initDemo } from '../../../../utils/demo/helpers';
+
+await initDemo();
+
+// ✅ Register the NIfTI image loader
+imageLoader.registerImageLoader('nifti', cornerstoneNiftiImageLoader);
+
+const niftiURL = 'https://ohif-assets.s3.us-east-2.amazonaws.com/nifti/CTACardio.nii.gz';
+const renderingEngineId = 'myRenderingEngine';
+const viewportId = 'NIFTI_VOLUME_VIEWPORT';
+
+// ✅ Ensure ViewportType is correct
+const { ViewportType } = Enums;
+console.log('Available ViewportTypes:', ViewportType);
+
+const content = document.getElementById('content');
+const element = document.createElement('div');
+element.style.width = '500px';
+element.style.height = '500px';
+content.appendChild(element);
+
+const renderingEngine = new RenderingEngine(renderingEngineId);
+const viewportInput = {
+  viewportId,
+  element,
+  type: ViewportType.VOLUME_3D, // ✅ Use VOLUME_3D
+};
+
+try {
+  renderingEngine.enableElement(viewportInput);
+} catch (error) {
+  console.error('Error enabling viewport:', error);
+}
+
+const viewport = renderingEngine.getViewport(viewportId);
+if (!viewport) {
+  console.error('Viewport not found:', viewportId);
+} else {
+  async function loadNifti() {
+    const imageIds = await createNiftiImageIdsAndCacheMetadata({ url: niftiURL });
+
+    // Define a volume ID
+    const volumeId = `niftiVolume`;
+
+    // Load the NIfTI volume
+    const volume = await volumeLoader.createAndCacheVolume(volumeId, { imageIds });
+
+    await volume.load();
+
+    // ✅ Assign the volume to the viewport
+    setVolumesForViewports(renderingEngine, [{ volumeId }], [viewportId]);
+
+    viewport.render();
+  }
+
+  loadNifti().catch(console.error);
+}
+
